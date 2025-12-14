@@ -1,11 +1,10 @@
 {
-  "name": "Balle Trampoline",
-  "short_name": "Trampoline",
-  "start_url": "./index.html",
+  "name": "Balle Trampoline – Pelote Jaune & Nuages Chat",
+  "short_name": "BalleTramp",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#87CEEB",
-  "theme_color": "#87CEEB",
-  "orientation": "portrait",
+  "theme_color": "#4682B4",
   "icons": [
     {
       "src": "icon-192.png",

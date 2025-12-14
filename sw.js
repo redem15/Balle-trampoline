@@ -1,10 +1,7 @@
-const cacheName="balle-trampoline-v1";
-const filesToCache=["/index.html","/manifest.json","/icon-192.png","/icon-512.png"];
-
-self.addEventListener("install", e=>{
-  e.waitUntil(caches.open(cacheName).then(cache=>cache.addAll(filesToCache)));
+self.addEventListener('install', event => {
+  console.log('Service Worker installé');
 });
 
-self.addEventListener("fetch", e=>{
-  e.respondWith(caches.match(e.request).then(r=>r || fetch(e.request)));
+self.addEventListener('fetch', event => {
+  // Placeholder pour cache futur
 });
