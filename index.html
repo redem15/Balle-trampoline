@@ -3,43 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <title>Balle Trampoline – Pelote Jaune & Nuages Chat</title>
-
-<!-- Manifest PWA -->
-<link rel="manifest" href="manifest.json">
-
 <style>
-  html, body { margin:0; padding:0; overflow:hidden; background:#87CEEB; }
-  canvas { display:block; }
-  #score { position:absolute; top:10px; left:10px; font-size:24px; color:#333; font-family:sans-serif; z-index:5; }
-
-  /* Menu et Game Over */
-  #menu, #gameOver {
-    position:absolute;
-    top:0; left:0;
-    width:100%; height:100%;
-    background:rgba(0,0,0,0.6);
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    align-items:center;
-    color:white;
-    font-family:sans-serif;
-    z-index:10;
-    text-align:center;
-  }
-
-  #gameTitle { font-size: 60px; margin-bottom: 20px; }
-  #bestScoreMenu { font-size: 28px; margin-bottom: 15px; }
-  #instructions { font-size: 24px; margin-bottom: 30px; }
-  #startBtn { font-size: 36px; padding: 20px 40px; cursor:pointer; border:none; border-radius:10px; background:#33aa33; color:white; font-weight:bold; }
-  #startBtn:hover { background:#2d992d; }
-  #gameOver button { font-size: 28px; padding: 15px 30px; cursor:pointer; border:none; border-radius:10px; background:#33aa33; color:white; font-weight:bold; }
-  #gameOver button:hover { background:#2d992d; }
+html, body { margin:0; padding:0; overflow:hidden; background:#87CEEB; }
+canvas { display:block; }
+#score { position:absolute; top:10px; left:10px; font-size:24px; color:#333; font-family:sans-serif; z-index:5; }
+#menu, #gameOver, #shop {
+  position:absolute; top:0; left:0; width:100%; height:100%;
+  display:flex; flex-direction:column; justify-content:center; align-items:center;
+  color:white; font-family:sans-serif; z-index:10; text-align:center;
+}
+#menu, #gameOver { background:rgba(0,0,0,0.6); }
+#shop { background:rgba(0,0,0,0.85); display:none; }
+#gameTitle { font-size:60px; margin-bottom:20px; }
+#bestScoreMenu { font-size:28px; margin-bottom:15px; }
+#instructions { font-size:24px; margin-bottom:30px; }
+button { font-size:28px; padding:15px 30px; cursor:pointer; border:none; border-radius:10px; background:#33aa33; color:white; font-weight:bold; margin:5px; }
+button:hover { background:#2d992d; }
+.coin-count { font-size:24px; margin-bottom:20px; }
+.buy-ball { display:block; margin:5px; }
 </style>
 </head>
 <body>
-
-<div id="score">Score: 0 | Meilleur: 0</div>
+<div id="score">Score: 0 | Meilleur: 0 | Pièces: 0</div>
 
 <div id="menu">
   <h1 id="gameTitle">Balle Trampoline</h1>
@@ -52,11 +37,18 @@
   <h2>Game Over</h2>
   <p id="finalScore"></p>
   <button id="restartBtn">Rejouer</button>
+  <button id="shopBtn">Boutique</button>
+</div>
+
+<div id="shop">
+  <h2>Boutique</h2>
+  <p class="coin-count">Pièces : <span id="shopCoins">0</span></p>
+  <button class="buy-ball" data-ball="yellow">Balle Jaune</button>
+  <button class="buy-ball" data-ball="emoji">Balle 😄 (10 pièces)</button>
+  <button id="backBtn">Retour</button>
 </div>
 
 <canvas id="gameCanvas"></canvas>
-
-<!-- Son de fond -->
 <audio id="bgMusic" src="background.mp3" loop autoplay></audio>
 
 <script>
@@ -69,10 +61,13 @@ const startBtn = document.getElementById('startBtn');
 const restartBtn = document.getElementById('restartBtn');
 const finalScore = document.getElementById('finalScore');
 const bestScoreMenu = document.getElementById('bestScoreMenu');
+const shopScreen = document.getElementById('shop');
+const shopCoinsSpan = document.getElementById('shopCoins');
+const backBtn = document.getElementById('backBtn');
+const shopBtn = document.getElementById('shopBtn');
 const bgMusic = document.getElementById('bgMusic');
 
 let gameStarted = false;
-
 function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
@@ -81,9 +76,24 @@ let ball = { x:0, y:0, radius:30, dx:0, dy:2 };
 let trampoline = { width:300, height:20, x:canvas.width/2-150, y:canvas.height-100 };
 let score = 0;
 
-// Charger le meilleur score depuis localStorage
+// Meilleur score et pièces
 let bestScore = localStorage.getItem('bestScore') ? parseInt(localStorage.getItem('bestScore')) : 0;
 bestScoreMenu.innerText = `Meilleur score : ${bestScore}`;
+let totalCoinsCollected = localStorage.getItem('totalCoinsCollected') ? parseInt(localStorage.getItem('totalCoinsCollected')) : 0;
+
+// Balle sélectionnée
+let currentBall = localStorage.getItem('currentBall') || 'yellow';
+let ownedBalls = localStorage.getItem('ownedBalls') ? JSON.parse(localStorage.getItem('ownedBalls')) : ['yellow'];
+
+// Explosion
+let explosionActive = false;
+let explosionStartTime = 0;
+
+// Pièces jaunes
+let coins = [];
+const maxCoins = 20;
+let lastCoinSpawn = 0;
+const coinSpawnInterval = 5000; // 5 secondes
 
 // Nuages chats
 let clouds = [];
@@ -91,7 +101,7 @@ for(let i=0;i<8;i++){
     clouds.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height/2, size:30+Math.random()*50, speed:0.2+Math.random()*0.5 });
 }
 
-// Décorations (fleurs et cailloux)
+// Décorations
 let decorations = [];
 function initDecorations(){
     decorations = [];
@@ -109,12 +119,11 @@ function resetBall(){
     ball.dx = 0; ball.dy = 2;
 }
 
+// Dessiner ciel et nuages
 function drawSky(){
     let topColor = '#87CEEB'; 
     let bottomColor = '#4682B4';
-    if(score >= 125){
-        topColor = '#5A9BD5'; bottomColor = '#2F5782';
-    }
+    if(score >= 125){ topColor = '#5A9BD5'; bottomColor = '#2F5782'; }
     let grad = ctx.createLinearGradient(0,0,0,canvas.height);
     grad.addColorStop(0, topColor);
     grad.addColorStop(1, bottomColor);
@@ -126,15 +135,12 @@ function drawSky(){
         ctx.shadowColor='rgba(255,255,255,0.6)';
         ctx.shadowBlur=20;
         ctx.beginPath(); ctx.arc(c.x,c.y,c.size,0,Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(c.x-c.size*0.6,c.y-c.size*0.2);
-        ctx.lineTo(c.x-c.size*0.35,c.y-c.size*0.9); ctx.lineTo(c.x-c.size*0.1,c.y-c.size*0.2); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(c.x+c.size*0.6,c.y-c.size*0.2);
-        ctx.lineTo(c.x+c.size*0.35,c.y-c.size*0.9); ctx.lineTo(c.x+c.size*0.1,c.y-c.size*0.2); ctx.fill();
         ctx.shadowBlur=0;
         c.x += c.speed; if(c.x-c.size>canvas.width) c.x=-c.size;
     });
 }
 
+// Herbe
 function drawGrass(){
     let grassHeight = 50;
     for(let i=0; i<canvas.width; i+=2){
@@ -148,6 +154,7 @@ function drawGrass(){
     }
 }
 
+// Décorations
 function drawDecorations(){
     decorations.forEach(d=>{
         if(d.type === 'flower'){
@@ -162,57 +169,23 @@ function drawDecorations(){
     });
 }
 
-const yarnLines = [];
-for(let i=0;i<12;i++){
-    yarnLines.push({ a1:Math.random()*Math.PI*2, a2:Math.random()*Math.PI*2, r:20+Math.random()*8 });
-}
-
+// Dessiner balle
 function drawBall(){
-    let color1 = "#FFD700"; 
-    let color2 = null;
-
-    if(score >= 200){
-        color1 = "#FF0000"; 
-        color2 = "#FFD700"; 
-    } else if(score >= 125){
-        color1 = "#40E0D0"; 
-    } else if(score >= 75){
-        color1 = "#8A2BE2"; 
-    } else if(score >= 25){
-        color1 = "#FF0000"; 
-    }
-
-    if(color2){
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, Math.PI/2, Math.PI*3/2);
-        ctx.lineTo(ball.x, ball.y);
-        ctx.fillStyle = color1;
-        ctx.fill();
-        ctx.closePath();
-
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, Math.PI*3/2, Math.PI/2);
-        ctx.lineTo(ball.x, ball.y);
-        ctx.fillStyle = color2;
-        ctx.fill();
-        ctx.closePath();
-    } else {
+    if(currentBall === 'emoji'){
+        ctx.font = `${ball.radius*2}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("😄", ball.x, ball.y);
+    } else if(currentBall === 'yellow'){
         ctx.beginPath();
         ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
-        ctx.fillStyle = color1;
+        ctx.fillStyle = "#FFD700";
         ctx.fill();
         ctx.closePath();
     }
-
-    ctx.strokeStyle="rgba(255,255,255,0.6)";
-    ctx.lineWidth=2;
-    yarnLines.forEach(l=>{
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, l.r, l.a1, l.a2);
-        ctx.stroke();
-    });
 }
 
+// Trampoline
 function drawTrampoline(){
     let bounceEffect = 0;
     if(ball.y + ball.radius > trampoline.y - 10 && ball.x > trampoline.x && ball.x < trampoline.x + trampoline.width){
@@ -242,6 +215,7 @@ function drawTrampoline(){
     }
 }
 
+// Trampoline length update
 function updateTrampolineLength(){
     if(score > 0 && score % 10 === 0 && score < 50){
         trampoline.width /= 1.1;
@@ -249,6 +223,7 @@ function updateTrampolineLength(){
     }
 }
 
+// Souris
 let isDragging=false;
 canvas.addEventListener('mousedown',()=>{isDragging=true;});
 canvas.addEventListener('mouseup',()=>{isDragging=false;});
@@ -258,20 +233,71 @@ canvas.addEventListener('mousemove',e=>{
         const rect=canvas.getBoundingClientRect();
         trampoline.x=e.clientX-rect.left-trampoline.width/2;
         if(trampoline.x<0) trampoline.x=0;
-        if(trampoline.x+trampoline.width>canvas.width) trampoline.x=canvas.width-trampoline.width;
+        if(trampoline.x+trampoline.width>canvas.width) trampoline.x = canvas.width-trampoline.width;
     }
 });
 
+// Pièces
+function spawnCoin() {
+    if(coins.length < maxCoins){
+        const x = canvas.width/4 + Math.random()*canvas.width/2;
+        const y = canvas.height/2 + Math.random()*(canvas.height/2 - 30);
+        coins.push({x, y, radius:10});
+    }
+}
+function drawCoins(){
+    coins.forEach(coin=>{
+        ctx.beginPath();
+        ctx.arc(coin.x, coin.y, coin.radius, 0, Math.PI*2);
+        ctx.fillStyle = "gold";
+        ctx.fill();
+        ctx.strokeStyle = "orange";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    });
+}
+
 function updateBestScoreMenu(){ bestScoreMenu.innerText=`Meilleur score : ${bestScore}`; }
 
+function drawExplosion() {
+    for(let i = 0; i < 50; i++){
+        ctx.beginPath();
+        let x = Math.random() * canvas.width;
+        let y = Math.random() * canvas.height;
+        let radius = 5 + Math.random() * 20;
+        let r = Math.floor(Math.random() * 255);
+        let g = Math.floor(Math.random() * 255);
+        let b = Math.floor(Math.random() * 255);
+        ctx.fillStyle = `rgba(${r},${g},${b},0.7)`;
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// -------------------- UPDATE GAME ---------------------
 function update(){
     if(!gameStarted) return;
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    drawSky();
-    drawGrass();
-    drawDecorations();
-    drawTrampoline();
-    drawBall();
+    drawSky(); drawGrass(); drawDecorations(); drawTrampoline(); drawBall();
+
+    // Collision balle/pièces
+    coins = coins.filter(coin=>{
+        const dx = ball.x - coin.x;
+        const dy = ball.y - coin.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        if(distance < ball.radius + coin.radius){
+            totalCoinsCollected++;
+            localStorage.setItem('totalCoinsCollected', totalCoinsCollected);
+            return false;
+        }
+        return true;
+    });
+    drawCoins();
+
+    if(Date.now() - lastCoinSpawn > coinSpawnInterval){
+        spawnCoin();
+        lastCoinSpawn = Date.now();
+    }
 
     let gravity = 0.1 + score*0.002;
     if(score >= 10) gravity *= 2;  
@@ -292,14 +318,17 @@ function update(){
             ball.dx = hitPos*5 + (Math.random()-0.5)*10;
             let accel = 1 + Math.min(score/2000,0.05); ball.dx*=accel; ball.dy*=accel;
             let maxDx=15+Math.floor(score/100); if(ball.dx>maxDx) ball.dx=maxDx; if(ball.dx<-maxDx) ball.dx=-maxDx;
-            score++; updateTrampolineLength();
+
+            score++;
+            if(score === 50){ explosionActive = true; explosionStartTime = Date.now(); }
+            updateTrampolineLength();
         } else {
             if(score>bestScore){
                 bestScore=score;
                 localStorage.setItem('bestScore', bestScore);
             }
             updateBestScoreMenu();
-            finalScore.innerText=`Score: ${score} | Meilleur: ${bestScore}`;
+            finalScore.innerText=`Score: ${score} | Meilleur: ${bestScore} | Pièces: ${totalCoinsCollected}`;
             gameOverScreen.style.display='flex';
             gameStarted=false;
             score=0;
@@ -307,12 +336,57 @@ function update(){
         }
     }
 
-    scoreDiv.innerText=`Score: ${score} | Meilleur: ${bestScore}`;
+    if(explosionActive){
+        drawExplosion();
+        ctx.fillStyle = "white";
+        ctx.font = "50px sans-serif";
+        ctx.fillText("50 POINTS !", canvas.width/2 - 120, canvas.height/2);
+        if(Date.now() - explosionStartTime > 2000){ explosionActive = false; }
+    }
+
+    scoreDiv.innerText=`Score: ${score} | Meilleur: ${bestScore} | Pièces: ${totalCoinsCollected}`;
     requestAnimationFrame(update);
 }
 
-initDecorations();
+// -------------------- BOUTIQUE ---------------------
+shopBtn.onclick = () => {
+    shopCoinsSpan.innerText = totalCoinsCollected;
+    shopScreen.style.display='flex';
+    gameOverScreen.style.display='none';
+};
 
+backBtn.onclick = () => {
+    shopScreen.style.display='none';
+    gameOverScreen.style.display='flex';
+};
+
+// Achat et sélection balle
+document.querySelectorAll('.buy-ball').forEach(btn=>{
+  btn.onclick = ()=>{
+    const ballId = btn.getAttribute('data-ball');
+    if(ballId === 'emoji'){
+      if(!ownedBalls.includes('emoji')){
+        if(totalCoinsCollected >= 10){
+          totalCoinsCollected -= 10;
+          ownedBalls.push('emoji');
+          localStorage.setItem('ownedBalls', JSON.stringify(ownedBalls));
+          localStorage.setItem('totalCoinsCollected', totalCoinsCollected);
+          currentBall = 'emoji';
+          localStorage.setItem('currentBall', currentBall);
+          shopCoinsSpan.innerText = totalCoinsCollected;
+          alert("Balle emoji achetée et sélectionnée !");
+          btn.innerText = "Balle 😄 (Possédé)";
+        } else { alert("Pas assez de pièces !"); return; }
+      } else { currentBall = 'emoji'; localStorage.setItem('currentBall', currentBall); }
+    } else if(ballId === 'yellow'){
+      currentBall = 'yellow';
+      localStorage.setItem('currentBall', currentBall);
+    }
+  }
+});
+
+// -------------------- START/RESTART ---------------------
+initDecorations();
 startBtn.onclick=()=>{
     menu.style.display='none';
     gameStarted=true;
@@ -329,13 +403,6 @@ restartBtn.onclick=()=>{
     trampoline.width=300; trampoline.x=canvas.width/2-trampoline.width/2;
     bgMusic.play();
     update();
-}
-
-// Enregistrement Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-  .then(()=>console.log('Service Worker enregistré'))
-  .catch(err=>console.log('Erreur SW:', err));
 }
 </script>
 </body>
